@@ -1,10 +1,10 @@
 # Short-Interest Gap Strategy
 
+[![CI](https://github.com/Avinash186200/short-interest-gap-strategy/actions/workflows/ci.yml/badge.svg)](https://github.com/Avinash186200/short-interest-gap-strategy/actions/workflows/ci.yml) ![Python](https://img.shields.io/badge/python-3.11-blue) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 An intraday backtest of a simple idea: heavily shorted small caps that gap up in the days after FINRA publishes their short interest may keep running (go long) or may fail and fade (go short). I screen FINRA's bi-monthly short-interest data, trade the gap rules on 1-minute bars, and then test whether a daily ranking of the candidates adds anything. The strategy idea was shared by a third party; this is my independent replication and audit of it, and the code is mine.
 
 The original research used vendor price data I can't share, so this repo runs on a **synthetic market with the same inputs**: a FINRA-style short-interest table, a shares-outstanding table with filing dates, and 1-minute bars. You can clone it and reproduce every number below.
-
-[![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 
 ## At a glance
 
@@ -110,6 +110,16 @@ python scripts/run_backtest.py --data-dir data/synthetic
 
 `--data-dir` expects `finra_short_interest.csv` (FINRA column names), `shares_outstanding.csv` (`symbol, period_end, filed_date, shares`) and `bars/<TICKER>.parquet` with columns `t` (bar start, unix seconds UTC), `o, h, l, c, v`.
 
+## Original research code
+
+[`original/`](original/README.md) holds the code as I first wrote it for this work, sanitised and nothing else:
+client, company and person names replaced, credentials and local paths removed, data files and notebook outputs
+dropped, and internal deployment notes, client-facing decks and client findings memos left out. It is kept so
+the real work can be read alongside the maintained version. Some of it contains the issues
+described above; comparing the two shows each fix.
+
 ## License
 
 MIT
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the [CHANGELOG](CHANGELOG.md).
