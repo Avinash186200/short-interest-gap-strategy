@@ -2,6 +2,12 @@
 
 [![CI](https://github.com/Avinash186200/short-interest-gap-strategy/actions/workflows/ci.yml/badge.svg)](https://github.com/Avinash186200/short-interest-gap-strategy/actions/workflows/ci.yml) ![Python](https://img.shields.io/badge/python-3.11-blue) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
+## What problem this solves
+
+Twice a month, the US regulator FINRA publishes how many shares of each stock are sold short. A trading idea says that heavily shorted small caps behave in a predictable way when they jump at the open in the days after that release. This repo tests the idea honestly: the data is only used once it is public, trades are filled one bar after the signal, costs are paid, and every "best" result is checked against random picks.
+
+## Overview
+
 An intraday backtest of a simple idea: heavily shorted small caps that gap up in the days after FINRA publishes their short interest may keep running (go long) or may fail and fade (go short). I screen FINRA's bi-monthly short-interest data, trade the gap rules on 1-minute bars, and then test whether a daily ranking of the candidates adds anything. The strategy idea was shared by a third party; this is my independent replication and audit of it, and the code is mine.
 
 The original research used vendor price data I can't share, so this repo runs on a **synthetic market with the same inputs**: a FINRA-style short-interest table, a shares-outstanding table with filing dates, and 1-minute bars. You can clone it and reproduce every number below.
@@ -16,7 +22,42 @@ The original research used vendor price data I can't share, so this repo runs on
 | **Leakage controls** | Holiday-aware publication date and first trade on the session *after* it, point-in-time shares (filing date), entry on the bar after the signal, costs on every trade, selection on training data only, random-pick control, noise test in CI |
 | **Status** | Research complete. SHORT side: no edge. LONG side: one candidate rule that was never validated on a clean hold-out. The numbers below are synthetic and only illustrate the method |
 
+## What you will learn
+
+- How to use a public data set without look-ahead: publication lags, holidays, and filing dates for company data.
+- How to backtest an intraday rule on 1-minute bars with next-bar entries, profit targets and costs.
+- Why summed per-trade returns are not a portfolio, and how a slot-based, compounding account fixes that.
+- How to choose among many configs with an expanding walk-forward, then check the choice once on a hold-out.
+- Why a random-pick control matters: trading fewer names can look like skill when it is not.
+- How the deflated Sharpe rejects the best of 34 configs on pure noise.
+
+## Key concepts
+
+- **Short interest.** The number of shares sold short and not yet bought back, reported for a settlement date.
+- **Days to cover.** Short interest divided by average daily volume: roughly how many days of normal trading shorts would need to buy back.
+- **Publication lag.** FINRA publishes about 7 business days after the settlement date. Using the numbers before then is look-ahead.
+- **Point-in-time data.** Use a company's share count only once it has been filed, never a later or current figure.
+- **Gap up.** The day's open is well above the previous close (here at least 2.5%).
+- **Next-bar entry.** The signal is read on one 1-minute bar's close and the trade enters at the next bar's open.
+- **Cooling-off.** After a loss on a ticker, skip that ticker for a few days.
+- **Slots.** Capital is split into 5 equal parts, so a busy day cannot put more than the whole account at risk.
+- **Walk-forward choice.** Choose the config on past data only, trade it for the next quarter, then choose again.
+- **Hold-out.** The last 4 months, never used for any choice, scored once at the end.
+- **Random control.** The same number of trades picked at random. A real ranking should beat most random draws.
+- **Deflated Sharpe.** The probability a Sharpe is above zero after allowing for how many configs were tried (Bailey and López de Prado, 2014).
+
 ## How it works
+
+```mermaid
+flowchart LR
+    A[FINRA short interest<br/>+ shares by filing date] --> B[Screen<br/>screen.py]
+    B --> C[Post-publication window<br/>calendar.py]
+    C --> D[Gap rules on 1-min bars<br/>trades.py]
+    D --> E[Candidates]
+    E --> F[Daily rank + cooling-off<br/>selection.py]
+    F --> G[Slot portfolio<br/>metrics.py]
+    G --> H[Walk-forward choice,<br/>hold-out, random control<br/>validation.py]
+```
 
 ```
 FINRA short interest ──► screen ──► post-publication window ──► gap rules on 1-min bars ──► candidates
@@ -37,6 +78,8 @@ FINRA short interest ──► screen ──► post-publication window ──�
 6. **Evaluation**: I score 34 configs (4 rankings x top-N {1, 2, 3, 5} x cooling-off {0, 5}, plus "take all"). The config is chosen on training data only, re-chosen each quarter, and then checked once on the last 4 months.
 
 ## Results on synthetic data
+
+These numbers come from a synthetic market, not real prices. They only illustrate the method; they say nothing about whether the real strategy works.
 
 `python scripts/run_backtest.py` (seed 7, 150 tickers, Jan 2024 to May 2026, 15 bps per side). The planted effect is deliberately strong, so the mechanics are easy to see:
 
@@ -85,11 +128,27 @@ I found these when I re-audited the original research code. The new code fixes e
 ## Repo layout
 
 ```
-src/sigap/   calendar.py · screen.py · trades.py · selection.py · metrics.py · validation.py · sources.py · synthetic.py
-scripts/     run_backtest.py · make_synthetic_data.py
-tests/       publication timing, point-in-time shares, entry timing, costs, cooling-off, walk-forward boundaries,
-             planted-signal recovery, noise test, file-format round trip
-docs/        methodology.md
+src/sigap/
+  calendar.py      exchange sessions, publication date, first tradable session
+  screen.py        short-interest screen with point-in-time shares outstanding
+  trades.py        LONG and SHORT gap rules on 1-minute bars, costs, candidate list
+  selection.py     daily ranking, top-N and cooling-off
+  metrics.py       slot-based compounding portfolio, Sharpe, drawdown, deflated Sharpe
+  validation.py    naive best, walk-forward, hold-out, random control
+  sources.py       price-data interface and a parquet bar reader
+  synthetic.py     synthetic market with an optional planted effect
+scripts/
+  run_backtest.py         end-to-end run; writes results/
+  make_synthetic_data.py  writes an example data folder in the on-disk format
+tests/
+  test_pipeline.py publication timing, point-in-time shares, entry timing, costs, cooling-off,
+                   walk-forward boundaries, planted-signal recovery, noise test, file-format round trip
+docs/
+  README.md        index
+  methodology.md   method notes and the bias audit in full
+  walkthrough.md   a guided first run, and how to read each output
+original/          the sanitised original research code (read-only)
+results/           created by the script (git-ignored): candidates.csv, summary.json
 ```
 
 ## Quick start
@@ -109,6 +168,10 @@ python scripts/run_backtest.py --data-dir data/synthetic
 ```
 
 `--data-dir` expects `finra_short_interest.csv` (FINRA column names), `shares_outstanding.csv` (`symbol, period_end, filed_date, shares`) and `bars/<TICKER>.parquet` with columns `t` (bar start, unix seconds UTC), `o, h, l, c, v`.
+
+With only 20 tickers the second command is a format check, not a result: the LONG walk-forward has 21 trades.
+
+[docs/walkthrough.md](docs/walkthrough.md) goes through a first run step by step.
 
 ## Original research code
 
